@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Video App</title>
+</head>
+<body>
+    <div>
+        <h3>Your Id: <span id="myId"></span></h3>
+        <h3>Online Users (click to connect)</h3>
+        <div id="users"></div>
+        <video id="local-video" autoplay muted></video>
+        <video id="remote-video" autoplay></video>
+    </div>
+    <p id="status"></p>
+
+    <!-- Import socket.io script -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        const peer = new RTCPeerConnection({
+            iceServers: [
+                { urls: "stun:stun.stunprotocol.org" }
+            ]
+        });
+
+        // Handle ICE Candidate Event
+        peer.onicecandidate = event => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', { candidate: event.candidate, to: remoteSocketId });
+            }
+        };
+
+        // Set up call function and signaling
+        let remoteSocketId;
+
+        const createCall = async (to) => {
+            remoteSocketId = to;
+            document.getElementById('status').innerText = `Calling ${to}`;
+
+            const localOffer = await peer.createOffer();
+            await peer.setLocalDescription(localOffer);
+            socket.emit('outgoing:call', { fromOffer: localOffer, to });
+        };
+
+        // Handle Track Event to display remote stream
+        peer.ontrack = event => {
+            document.getElementById('remote-video').srcObject = event.streams[0];
+        };
+
+        // Get local video stream and add tracks
+        const getUserMedia = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            document.getElementById('local-video').srcObject = stream;
+            stream.getTracks().forEach(track => peer.addTrack(track, stream));
+        };
+
+        // Incoming Call Setup
+        socket.on('incomming:call', async ({ from, offer }) => {
+            remoteSocketId = from;
+            document.getElementById('status').innerText = 'Incoming Call';
+
+            await peer.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+
+            socket.emit('call:accepted', { answer, to: from });
+        });
+
+        // Incoming Answer Setup
+        socket.on('incomming:answer', async ({ offer }) => {
+            await peer.setRemoteDescription(new RTCSessionDescription(offer));
+        });
+
+        // Handle incoming ICE candidates
+        socket.on('ice-candidate', async ({ candidate }) => {
+            if (candidate) {
+                await peer.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        });
+
+        // Update users list
+        socket.on('users:joined', id => {
+            const usersDiv = document.getElementById('users');
+            const btn = document.createElement('button');
+            btn.id = id;
+            btn.textContent = id;
+            btn.onclick = () => createCall(id);
+            usersDiv.appendChild(btn);
+        });
+
+        // Handle user disconnect
+        socket.on('user:disconnect', id => {
+            const userButton = document.getElementById(id);
+            if (userButton) userButton.remove();
+        });
+
+        // Display socket ID on connection
+        socket.on('hello', ({ id }) => {
+            document.getElementById('myId').innerText = id;
+        });
+
+        window.addEventListener('load', getUserMedia);
+    </script>
+</body>
+</html>
