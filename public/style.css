@@ -35,17 +35,3 @@ button {
     font-size: 20px;
     left: 30px;
 }
-
-/* Optional: Responsive layout */
-@media (max-width: 768px) {
-    #local-video, #remote-video {
-        position: static;
-        width: 100%;
-        height: auto;
-        margin-top: 10px;
-    }
-    #status {
-        position: static;
-        text-align: center;
-    }
-}

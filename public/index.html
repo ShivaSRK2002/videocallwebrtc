@@ -9,7 +9,7 @@
 </head>
 <body>
     <div>
-        <h3>Your Id: <span id="myId"></span></h3>
+        <h3>Your ID: <span id="myId"></span></h3>
         <h3>Online Users (click to connect)</h3>
         <div id="users"></div>
         <video id="local-video" autoplay muted></video>
@@ -28,83 +28,94 @@
             ]
         });
 
-        // Handle ICE Candidate Event
-        peer.onicecandidate = event => {
-            if (event.candidate) {
-                socket.emit('ice-candidate', { candidate: event.candidate, to: remoteSocketId });
-            }
-        };
-
-        // Set up call function and signaling
-        let remoteSocketId;
-
+        // Create a call to the other user
         const createCall = async (to) => {
-            remoteSocketId = to;
-            document.getElementById('status').innerText = `Calling ${to}`;
+            const status = document.getElementById('status');
+            status.innerText = `Calling ${to}`;
 
             const localOffer = await peer.createOffer();
             await peer.setLocalDescription(localOffer);
+
             socket.emit('outgoing:call', { fromOffer: localOffer, to });
         };
 
-        // Handle Track Event to display remote stream
-        peer.ontrack = event => {
-            document.getElementById('remote-video').srcObject = event.streams[0];
+        // Handle incoming media streams
+        peer.ontrack = ({ streams: [stream] }) => {
+            const status = document.getElementById('status');
+            status.innerText = 'Incoming Stream';
+
+            const video = document.getElementById('remote-video');
+            video.srcObject = stream;  // Set the remote stream to the remote video element
         };
 
-        // Get local video stream and add tracks
+        // Handle incoming answers
+        socket.on('incomming:answere', async (data) => {
+            const { offer } = data;
+            await peer.setRemoteDescription(new RTCSessionDescription(offer));
+        });
+
+        // Handle disconnect
+        socket.on('user:disconnect', (id) => {
+            document.getElementById(id).remove();
+        });
+
+        // Handle incoming call request
+        socket.on('incomming:call', async (data) => {
+            const status = document.getElementById('status');
+            status.innerText = 'Incoming Call';
+
+            const { from, offer } = data;
+            await peer.setRemoteDescription(new RTCSessionDescription(offer));
+
+            const answerOffer = await peer.createAnswer();
+            await peer.setLocalDescription(answerOffer);
+
+            socket.emit('call:accepted', { answere: answerOffer, to: from });
+        });
+
+        // Get and display user ID
+        socket.on('hello', ({ id }) => document.getElementById('myId').innerText = id);
+
+        // Initialize user's media (video and audio)
         const getUserMedia = async () => {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            document.getElementById('local-video').srcObject = stream;
-            stream.getTracks().forEach(track => peer.addTrack(track, stream));
-        };
+            try {
+                const userMedia = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true  // Enabling both video and audio
+                });
 
-        // Incoming Call Setup
-        socket.on('incomming:call', async ({ from, offer }) => {
-            remoteSocketId = from;
-            document.getElementById('status').innerText = 'Incoming Call';
+                const videoEle = document.getElementById('local-video');
+                videoEle.srcObject = userMedia;
+                videoEle.play();
 
-            await peer.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peer.createAnswer();
-            await peer.setLocalDescription(answer);
-
-            socket.emit('call:accepted', { answer, to: from });
-        });
-
-        // Incoming Answer Setup
-        socket.on('incomming:answer', async ({ offer }) => {
-            await peer.setRemoteDescription(new RTCSessionDescription(offer));
-        });
-
-        // Handle incoming ICE candidates
-        socket.on('ice-candidate', async ({ candidate }) => {
-            if (candidate) {
-                await peer.addIceCandidate(new RTCIceCandidate(candidate));
+                // Add tracks to peer connection
+                userMedia.getTracks().forEach(track => {
+                    peer.addTrack(track, userMedia);
+                });
+            } catch (error) {
+                console.error('Error accessing media devices.', error);
             }
-        });
+        };
 
         // Update users list
-        socket.on('users:joined', id => {
+        const getAndUpdateUsers = async () => {
             const usersDiv = document.getElementById('users');
-            const btn = document.createElement('button');
-            btn.id = id;
-            btn.textContent = id;
-            btn.onclick = () => createCall(id);
-            usersDiv.appendChild(btn);
-        });
+            usersDiv.innerHTML = '';
+            const response = await fetch('/users', { method: 'GET' });
+            const jsonResponse = await response.json();
 
-        // Handle user disconnect
-        socket.on('user:disconnect', id => {
-            const userButton = document.getElementById(id);
-            if (userButton) userButton.remove();
-        });
+            jsonResponse.forEach(user => {
+                const btn = document.createElement('button');
+                btn.id = user[0];
+                btn.textContent = user[0];
+                btn.onclick = () => createCall(user[0]);
+                usersDiv.appendChild(btn);
+            });
+        };
 
-        // Display socket ID on connection
-        socket.on('hello', ({ id }) => {
-            document.getElementById('myId').innerText = id;
-        });
-
-        window.addEventListener('load', getUserMedia);
+        // Fetch users list on load
+        window.addEventListener('load', getAndUpdateUsers);
+        window.addEventListener('load', getUserMedia);  // Get user media on load
     </script>
 </body>
 </html>

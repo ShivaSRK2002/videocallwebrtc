@@ -1,4 +1,3 @@
-// index.js
 const http = require('http');
 const express = require('express');
 const { Server: SocketIO } = require('socket.io');
@@ -11,29 +10,23 @@ const PORT = process.env.PORT || 8000;
 
 const users = new Map();
 
-io.on('connection', socket => {
+io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
     users.set(socket.id, socket.id);
 
     socket.broadcast.emit('users:joined', socket.id);
     socket.emit('hello', { id: socket.id });
 
-    // Handle outgoing call
-    socket.on('outgoing:call', ({ fromOffer, to }) => {
+    socket.on('outgoing:call', (data) => {
+        const { fromOffer, to } = data;
         socket.to(to).emit('incomming:call', { from: socket.id, offer: fromOffer });
     });
 
-    // Handle call accepted
-    socket.on('call:accepted', ({ answer, to }) => {
-        socket.to(to).emit('incomming:answer', { from: socket.id, offer: answer });
+    socket.on('call:accepted', (data) => {
+        const { answere, to } = data;
+        socket.to(to).emit('incomming:answere', { from: socket.id, offer: answere });
     });
 
-    // Handle ICE candidate exchange
-    socket.on('ice-candidate', ({ candidate, to }) => {
-        socket.to(to).emit('ice-candidate', { candidate });
-    });
-
-    // Handle disconnection
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);
         users.delete(socket.id);
@@ -44,7 +37,7 @@ io.on('connection', socket => {
 app.use(express.static(path.resolve('./public')));
 
 app.get('/users', (req, res) => {
-    return res.json(Array.from(users));
+    res.json(Array.from(users));
 });
 
-server.listen(PORT, () => console.log(`Server started on PORT: ${PORT}`));
+server.listen(PORT, () => console.log(`Server started at PORT:${PORT}`));
